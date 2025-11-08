@@ -1,24 +1,14 @@
-// controllers/adminController.js
 const Issue = require("../models/Issue");
-const { deleteImage } = require("../config/cloudinary");
+// const { deleteImage } = require("../config/cloudinary"); // uncomment if using Cloudinary
 
-// @desc    Get all issues with filters
-// @route   GET /api/admin/issues
-// @access  Private/Admin
 exports.getAllIssues = async (req, res) => {
   try {
     const { status, category, search, startDate, endDate } = req.query;
 
-    // Build filter object
     let filter = {};
 
-    if (status) {
-      filter.status = status;
-    }
-
-    if (category) {
-      filter.category = category;
-    }
+    if (status) filter.status = status;
+    if (category) filter.category = category;
 
     if (search) {
       filter.$or = [
@@ -29,23 +19,15 @@ exports.getAllIssues = async (req, res) => {
 
     if (startDate || endDate) {
       filter.createdAt = {};
-      if (startDate) {
-        filter.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filter.createdAt.$lte = new Date(endDate);
-      }
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
     const issues = await Issue.find(filter)
       .sort({ createdAt: -1 })
       .populate("reportedBy.userId", "name email");
 
-    res.status(200).json({
-      success: true,
-      count: issues.length,
-      issues,
-    });
+    res.status(200).json({ success: true, count: issues.length, issues });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -55,9 +37,6 @@ exports.getAllIssues = async (req, res) => {
   }
 };
 
-// @desc    Get issue by ID (Admin view)
-// @route   GET /api/admin/issues/:id
-// @access  Private/Admin
 exports.getIssueById = async (req, res) => {
   try {
     const issue = await Issue.findById(req.params.id)
@@ -65,16 +44,12 @@ exports.getIssueById = async (req, res) => {
       .populate("statusHistory.updatedBy", "name email");
 
     if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: "Issue not found",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Issue not found" });
     }
 
-    res.status(200).json({
-      success: true,
-      issue,
-    });
+    res.status(200).json({ success: true, issue });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -84,37 +59,27 @@ exports.getIssueById = async (req, res) => {
   }
 };
 
-// @desc    Update issue status
-// @route   PATCH /api/admin/issues/:id/status
-// @access  Private/Admin
 exports.updateIssueStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
     if (!status || !["Pending", "In-Progress", "Resolved"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status value",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status value" });
     }
 
     const issue = await Issue.findById(req.params.id);
+    if (!issue)
+      return res
+        .status(404)
+        .json({ success: false, message: "Issue not found" });
 
-    if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: "Issue not found",
-      });
-    }
-
-    // Update status
     issue.status = status;
-
-    // Add to status history
     issue.statusHistory.push({
       status,
       updatedAt: Date.now(),
-      updatedBy: req.user._id,
+      updatedBy: req.user ? req.user._id : null,
     });
 
     await issue.save();
@@ -133,28 +98,19 @@ exports.updateIssueStatus = async (req, res) => {
   }
 };
 
-// @desc    Add admin notes to issue
-// @route   PATCH /api/admin/issues/:id/notes
-// @access  Private/Admin
 exports.addAdminNotes = async (req, res) => {
   try {
     const { notes } = req.body;
-
-    if (!notes) {
-      return res.status(400).json({
-        success: false,
-        message: "Notes are required",
-      });
-    }
+    if (!notes)
+      return res
+        .status(400)
+        .json({ success: false, message: "Notes are required" });
 
     const issue = await Issue.findById(req.params.id);
-
-    if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: "Issue not found",
-      });
-    }
+    if (!issue)
+      return res
+        .status(404)
+        .json({ success: false, message: "Issue not found" });
 
     issue.adminNotes = notes;
     await issue.save();
@@ -173,9 +129,6 @@ exports.addAdminNotes = async (req, res) => {
   }
 };
 
-// @desc    Get dashboard statistics
-// @route   GET /api/admin/stats
-// @access  Private/Admin
 exports.getDashboardStats = async (req, res) => {
   try {
     const totalIssues = await Issue.countDocuments();
@@ -185,17 +138,10 @@ exports.getDashboardStats = async (req, res) => {
     });
     const resolvedIssues = await Issue.countDocuments({ status: "Resolved" });
 
-    // Get category-wise breakdown
     const categoryStats = await Issue.aggregate([
-      {
-        $group: {
-          _id: "$category",
-          count: { $sum: 1 },
-        },
-      },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
     ]);
 
-    // Get recent issues (last 10)
     const recentIssues = await Issue.find()
       .sort({ createdAt: -1 })
       .limit(10)
@@ -221,31 +167,24 @@ exports.getDashboardStats = async (req, res) => {
   }
 };
 
-// @desc    Delete issue (Admin only)
-// @route   DELETE /api/admin/issues/:id
-// @access  Private/Admin
 exports.deleteIssue = async (req, res) => {
   try {
     const issue = await Issue.findById(req.params.id);
+    if (!issue)
+      return res
+        .status(404)
+        .json({ success: false, message: "Issue not found" });
 
-    if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: "Issue not found",
-      });
-    }
-
-    // Delete image from Cloudinary if exists
-    if (issue.image && issue.image.publicId) {
-      await deleteImage(issue.image.publicId);
-    }
+    // If using Cloudinary uncomment and use deleteImage
+    // if (issue.image && issue.image.publicId) {
+    //   await deleteImage(issue.image.publicId);
+    // }
 
     await issue.deleteOne();
 
-    res.status(200).json({
-      success: true,
-      message: "Issue deleted successfully",
-    });
+    res
+      .status(200)
+      .json({ success: true, message: "Issue deleted successfully" });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -253,4 +192,14 @@ exports.deleteIssue = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+// Export controller functions
+module.exports = {
+  getAllIssues: exports.getAllIssues,
+  getIssueById: exports.getIssueById,
+  updateIssueStatus: exports.updateIssueStatus,
+  addAdminNotes: exports.addAdminNotes,
+  getDashboardStats: exports.getDashboardStats,
+  deleteIssue: exports.deleteIssue,
 };
